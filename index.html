@@ -13,6 +13,7 @@
     <!-- Inter Font -->
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
     <!-- Lucide Icons -->
+    <script src="https://www.youtube.com/iframe_api"></script>
     <script src="https://unpkg.com/lucide@latest"></script>
     
     <style>
@@ -304,36 +305,43 @@
 
         let currentVideoId = null;
 
-        function loadIframeIntoTopPlayer(videoId, shouldScroll = true) {
-    // Check if the requested video is already playing to avoid reset on fullscreen toggle
-    if (currentVideoId === videoId) {
-        return; 
-    }
-    
-    currentVideoId = videoId;
+        let player;
+
+// This function is called by the YouTube API once it's ready
+function onYouTubeIframeAPIReady() {
+    // Initial placeholder setup
+    console.log("YouTube API Ready");
+}
+
+function loadIframeIntoTopPlayer(videoId) {
     const placeholder = document.getElementById('playerPlaceholder');
     const target = document.getElementById('activePlayerFrame');
     
+    // Hide placeholder
     if (placeholder) placeholder.classList.add('hidden');
     target.classList.remove('hidden');
 
-    const iframe = document.createElement('iframe');
-    
-    // Using modestbranding and autohide ensures cleaner transition
-    iframe.src = `https://www.youtube-nocookie.com/embed/${videoId}?autoplay=1&playsinline=1&rel=0&modestbranding=1&enablejsapi=1&origin=${window.location.origin || 'https://localhost'}`;
-    
-    iframe.allow = "accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share; fullscreen";
-    iframe.allowFullscreen = true; 
-    iframe.className = "w-full h-full object-cover";
-
-    target.innerHTML = '';
-    target.appendChild(iframe);
-
-    if (shouldScroll) {
-        window.scrollTo({ top: 0, behavior: 'smooth' });
+    // If player doesn't exist, create it. If it does, just load the new video.
+    if (!player) {
+        player = new YT.Player('activePlayerFrame', {
+            videoId: videoId,
+            playerVars: {
+                'autoplay': 1,
+                'playsinline': 1,
+                'rel': 0,
+                'modestbranding': 1
+            },
+            events: {
+                'onReady': (event) => event.target.playVideo()
+            }
+        });
+    } else {
+        // This is the key: it swaps the video without destroying the iframe
+        player.loadVideoById(videoId);
     }
+    
+    window.scrollTo({ top: 0, behavior: 'smooth' });
 }
-
         function renderEmptyState() {
             const container = document.getElementById('feedList');
             container.innerHTML = `
