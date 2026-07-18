@@ -13,7 +13,6 @@
     <!-- Inter Font -->
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
     <!-- Lucide Icons -->
-    <script src="https://www.youtube.com/iframe_api"></script>
     <script src="https://unpkg.com/lucide@latest"></script>
     
     <style>
@@ -113,8 +112,9 @@
          */
         const API_KEY = "AIzaSyAir3wueFYd8jIKoMlNm4DXSbtvN_FjVgI"; 
         const CHANNELS = [
-            "UCWg1zRPHiCoX-mDuJkcbsIw"
-    
+            "UCWg1zRPHiCoX-mDuJkcbsIw",
+            "UCN8S4CqMRy6tVKVXvs7Bzeg",
+            "UCJ5djr7ssnILE9zHQtb0-9g"
         ];
 
         let state = {
@@ -303,45 +303,35 @@
             });
         }
 
-        let currentVideoId = null;
-
-        let player;
-
-// This function is called by the YouTube API once it's ready
-function onYouTubeIframeAPIReady() {
-    // Initial placeholder setup
-    console.log("YouTube API Ready");
-}
-
-function loadIframeIntoTopPlayer(videoId) {
+        function loadIframeIntoTopPlayer(videoId, shouldScroll = true) {
     const placeholder = document.getElementById('playerPlaceholder');
     const target = document.getElementById('activePlayerFrame');
     
-    // Hide placeholder
     if (placeholder) placeholder.classList.add('hidden');
     target.classList.remove('hidden');
 
-    // If player doesn't exist, create it. If it does, just load the new video.
-    if (!player) {
-        player = new YT.Player('activePlayerFrame', {
-            videoId: videoId,
-            playerVars: {
-                'autoplay': 1,
-                'playsinline': 1,
-                'rel': 0,
-                'modestbranding': 1
-            },
-            events: {
-                'onReady': (event) => event.target.playVideo()
-            }
-        });
-    } else {
-        // This is the key: it swaps the video without destroying the iframe
-        player.loadVideoById(videoId);
-    }
+    const iframe = document.createElement('iframe');
     
-    window.scrollTo({ top: 0, behavior: 'smooth' });
+    // Updated src: Ensure necessary parameters for WebView compatibility
+    iframe.src = `https://www.youtube-nocookie.com/embed/${videoId}?autoplay=1&playsinline=1&rel=0&modestbranding=1&enablejsapi=1&origin=${window.location.origin || 'https://localhost'}`;
+    
+    /**
+     * UPDATES FOR FULLSCREEN:
+     * 1. Added 'fullscreen' to the 'allow' attribute string.
+     * 2. Retained 'allowFullscreen' boolean for standardized compatibility.
+     */
+    iframe.allow = "accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share; fullscreen";
+    iframe.allowFullscreen = true; 
+    iframe.className = "w-full h-full object-cover";
+
+    target.innerHTML = '';
+    target.appendChild(iframe);
+
+    if (shouldScroll) {
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
 }
+
         function renderEmptyState() {
             const container = document.getElementById('feedList');
             container.innerHTML = `
