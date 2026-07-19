@@ -1,0 +1,435 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Premium YouTube Vertical Feed</title>
+    
+    <!-- Explicit Referrer Policy for WebView validation passes -->
+    <meta name="referrer" content="strict-origin-when-cross-origin" />
+
+    <!-- Tailwind CSS for high-fidelity layouts -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Inter Font -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #1a1a1a;
+            color: #ffffff;
+            scroll-behavior: smooth;
+        }
+        
+        /* Custom scrollbar matching design aesthetics */
+        ::-webkit-scrollbar {
+            width: 6px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #1a1a1a;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #333333;
+            border-radius: 3px;
+        }
+
+        /* Pulse shimmer for skeletons */
+        @keyframes skeleton-shimmer {
+            0% { background-position: -200% 0; }
+            100% { background-position: 200% 0; }
+        }
+        .skeleton-shimmer {
+            background: linear-gradient(90deg, #222222 25%, #333333 50%, #222222 75%);
+            background-size: 200% 100%;
+            animation: skeleton-shimmer 1.5s infinite linear;
+        }
+
+        /* Fixed Video Container at the top */
+        .top-player-container {
+            position: relative;
+            width: 100%;
+            padding-top: 56.25%; /* 16:9 Aspect Ratio */
+            background-color: #000000;
+        }
+        .top-player-container iframe {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            border: 0;
+        }
+    </style>
+</head>
+<body class="min-h-screen flex flex-col antialiased">
+
+    <!-- TOP FIXED VIDEO VIEWER -->
+    <div class="sticky top-0 z-50 bg-black shadow-md border-b border-neutral-800">
+        <div id="mainPlayerViewport" class="top-player-container">
+            <!-- Dynamic placeholder before user clicks or auto-loads any video feed target -->
+            <div id="playerPlaceholder" class="absolute inset-0 flex flex-col items-center justify-center bg-[#222] text-neutral-400 p-4 text-center">
+                <i data-lucide="play-circle" class="w-12 h-12 mb-2 text-neutral-500 animate-pulse"></i>
+                <p class="text-sm font-medium">Loading streams...</p>
+            </div>
+            <div id="activePlayerFrame" class="hidden absolute inset-0"></div>
+        </div>
+    </div>
+
+    <!-- MAIN INTERACTIVE INTERFACE PANEL -->
+    <main class="flex-grow w-full max-w-[600px] mx-auto px-3 py-4 flex flex-col gap-4">
+
+        <!-- Hidden Outage Context Status Bar -->
+        <div id="statusBanner" class="hidden flex items-center gap-2 p-3 bg-red-500/10 border border-red-500/20 text-red-400 text-xs rounded-xl">
+            <i data-lucide="alert-circle" class="w-4 h-4 flex-shrink-0"></i>
+            <span id="statusMessage">Offline Mode enabled. Loaded local system cache parameters.</span>
+        </div>
+
+        <!-- Video Item Catalog Output Array -->
+        <div id="feedList" class="flex flex-col gap-5">
+            <!-- Dynamic elements populate inside container structural target -->
+        </div>
+
+        <!-- Scroll Extension Infinite Hook Context -->
+        <div id="scrollTrigger" class="h-16 flex items-center justify-center text-neutral-500">
+            <div id="triggerLoading" class="hidden flex items-center gap-2">
+                <div class="w-4 h-4 border-2 border-purple-400 border-t-transparent rounded-full animate-spin"></div>
+                <span class="text-xs text-neutral-400">Loading subsequent content batches...</span>
+            </div>
+            <div id="triggerEnd" class="hidden text-xs font-medium tracking-wide text-neutral-500 uppercase">
+                End of Playlist Catalog
+            </div>
+        </div>
+    </main>
+
+    <!-- Context notification popup layout layer -->
+    <div id="toastContainer" class="fixed bottom-6 right-6 z-50 flex flex-col gap-2 pointer-events-none"></div>
+
+    <script>
+        /**
+         * HARDCODED SYSTEM APPLICATION CONFIGURATIONS
+         */
+        const API_KEY = "AIzaSyAir3wueFYd8jIKoMlNm4DXSbtvN_FjVgI"; 
+        const CHANNELS = [
+            "UCYzEMRKqrh01-tauv7MYyVQ",
+            "UC-DRlrWxQMSzTmQlBixB6tQ",
+            "UCo8bcnLyZH8tBIH9V1mLgqQ",
+            "UCWg1zRPHiCoX-mDuJkcbsIw",
+            "UCGwu0nbY2wSkW8N-cghnLpA",
+            "UCN8S4CqMRy6tVKVXvs7Bzeg",
+            "UCKiGNegP9BB-M8OJdmQYxIA"
+
+            
+        ];
+
+        let state = {
+            apiKey: API_KEY,
+            channels: [...CHANNELS],
+            videoFeed: [], 
+            paginationTokens: {}, 
+            isLoading: false,
+            isInitialLoaded: false
+        };
+
+        const CACHE_KEYS = {
+            CACHED_FEED: 'yt_feed_cache_minimalist_v4',
+            CACHED_PAGINATION: 'yt_pagination_cache_minimalist_v4'
+        };
+
+        document.addEventListener('DOMContentLoaded', () => {
+            lucide.createIcons();
+            initApp();
+        });
+
+        function saveCacheToLocalStorage() {
+            try {
+                localStorage.setItem(CACHE_KEYS.CACHED_FEED, JSON.stringify(state.videoFeed));
+                localStorage.setItem(CACHE_KEYS.CACHED_PAGINATION, JSON.stringify(state.paginationTokens));
+            } catch(e) {
+                console.warn("Local web caching footprint exceeded allocation bounds.", e);
+            }
+        }
+
+        function loadFromCache() {
+            const cachedFeed = localStorage.getItem(CACHE_KEYS.CACHED_FEED);
+            const cachedTokens = localStorage.getItem(CACHE_KEYS.CACHED_PAGINATION);
+
+            if (cachedFeed) {
+                try {
+                    state.videoFeed = JSON.parse(cachedFeed);
+                    if (cachedTokens) {
+                        state.paginationTokens = JSON.parse(cachedTokens);
+                    }
+                    displayStatusBanner(true, "Offline cache initialization loaded.");
+                    renderFeed(state.videoFeed, false);
+                    state.isInitialLoaded = true;
+                } catch(e) {
+                    console.error("Cache index conversion failure:", e);
+                }
+            } else {
+                renderEmptyState();
+            }
+        }
+
+        function getUploadsPlaylistId(channelId) {
+            if (channelId && channelId.startsWith("UC")) {
+                return "UU" + channelId.substring(2);
+            }
+            return channelId;
+        }
+
+        async function fetchVideosFromChannels(nextPage = false) {
+    if (state.isLoading) return;
+    state.isLoading = true;
+    toggleScrollTriggerLoading(true);
+    displayStatusBanner(false);
+
+    if (!state.apiKey || state.apiKey === "YOUR_YOUTUBE_API_KEY") {
+        showToast("Please include an active developer token in the script config.", "danger");
+        loadFromCache();
+        state.isLoading = false;
+        toggleScrollTriggerLoading(false);
+        return;
+    }
+
+    const fetchPromises = state.channels.map(async (channelId) => {
+        const playlistId = getUploadsPlaylistId(channelId);
+        const currentToken = nextPage ? (state.paginationTokens[channelId] || '') : '';
+        
+        if (nextPage && !state.paginationTokens[channelId] && state.isInitialLoaded) {
+            return [];
+        }
+
+        const url = `https://www.googleapis.com/youtube/v3/playlistItems?part=snippet,contentDetails&playlistId=${playlistId}&maxResults=5&pageToken=${currentToken}&key=${state.apiKey}`;
+        
+        try {
+            const response = await fetch(url);
+            if (!response.ok) throw new Error("YouTube API Sync Exception");
+            const data = await response.json();
+            
+            if (data.nextPageToken) {
+                state.paginationTokens[channelId] = data.nextPageToken;
+            } else {
+                delete state.paginationTokens[channelId];
+            }
+
+            return (data.items || []).map(item => ({
+                id: item.contentDetails?.videoId,
+                title: item.snippet?.title || 'YouTube Broadcast Video Feed Target',
+                publishedAt: item.contentDetails?.videoPublishedAt || item.snippet?.publishedAt,
+                thumbnail: item.snippet?.thumbnails?.high?.url || item.snippet?.thumbnails?.medium?.url || `https://img.youtube.com/vi/${item.contentDetails?.videoId}/hqdefault.jpg`,
+                channelId: channelId
+            }));
+        } catch(err) {
+            return [];
+        }
+    });
+
+    try {
+        const results = await Promise.allSettled(fetchPromises);
+        let newVideos = [];
+        results.forEach((res) => {
+            if (res.status === 'fulfilled') {
+                newVideos = [...newVideos, ...res.value];
+            }
+        });
+
+        // Unique videos filter using Map to prevent duplicates
+        const combinedVideos = [...state.videoFeed, ...newVideos];
+        const uniqueMap = new Map();
+        combinedVideos.forEach(video => {
+            if (!uniqueMap.has(video.id)) {
+                uniqueMap.set(video.id, video);
+            }
+        });
+        
+        const uniqueVideos = Array.from(uniqueMap.values());
+        uniqueVideos.sort((a, b) => new Date(b.publishedAt) - new Date(a.publishedAt));
+
+        state.videoFeed = uniqueVideos;
+        state.isInitialLoaded = true;
+        saveCacheToLocalStorage();
+
+        // Render current full feed
+        renderFeed(uniqueVideos, false);
+
+        if (!nextPage && state.videoFeed.length > 0) {
+            loadIframeIntoTopPlayer(state.videoFeed[0].id, false);
+        }
+    } catch(e) {
+        showToast(e.message, "danger");
+        if (!nextPage) loadFromCache();
+    } finally {
+        state.isLoading = false;
+        toggleScrollTriggerLoading(false);
+    }
+}
+
+        function renderFeed(videos, append = false) {
+    const container = document.getElementById('feedList');
+    if (!append) container.innerHTML = '';
+
+    if (state.videoFeed.length === 0) {
+        renderEmptyState();
+        return;
+    }
+
+    const videosToRender = append ? videos : state.videoFeed;
+    const existingIds = new Set(append ? Array.from(container.querySelectorAll('[data-video-id]')).map(el => el.getAttribute('data-video-id')) : []);
+
+    videosToRender.forEach(video => {
+        if (existingIds.has(video.id)) return;
+
+        const card = document.createElement('div');
+        // Added rounded-2xl to the card container
+        card.className = 'video-card w-full flex flex-col bg-neutral-900 rounded-2xl p-2 border border-neutral-800 shadow-xl transition-all duration-200 active:scale-[0.98] cursor-pointer';
+        card.setAttribute('data-video-id', video.id);
+
+        card.innerHTML = `
+    <!-- The container and the image must both have rounded corners -->
+    <div class="relative w-full aspect-video bg-black overflow-hidden rounded-xl">
+        <div class="absolute inset-0 skeleton-shimmer z-20 transition-opacity duration-300" id="skeleton-${video.id}"></div>
+        <!-- Adding rounded-xl here ensures the image matches the container -->
+        <img src="${video.thumbnail}" class="absolute inset-0 w-full h-full object-cover z-10 rounded-xl" alt="Cover preview" onload="document.getElementById('skeleton-${video.id}').remove()" onerror="this.src='https://img.youtube.com/vi/${video.id}/hqdefault.jpg'" />
+    </div>
+    <div class="pt-3 px-1 pb-1">
+        <h2 class="text-[15px] font-bold text-gray-200 leading-snug line-clamp-2">
+            ${video.title}
+        </h2>
+    </div>
+`;
+        card.addEventListener('click', () => {
+            loadIframeIntoTopPlayer(video.id, true);
+        });
+
+        container.appendChild(card);
+    });
+}
+
+        function loadIframeIntoTopPlayer(videoId, shouldScroll = true) {
+    const placeholder = document.getElementById('playerPlaceholder');
+    const target = document.getElementById('activePlayerFrame');
+    
+    if (placeholder) placeholder.classList.add('hidden');
+    target.classList.remove('hidden');
+
+    const iframe = document.createElement('iframe');
+    
+    // Updated src: Ensure necessary parameters for WebView compatibility
+    iframe.src = `https://www.youtube-nocookie.com/embed/${videoId}?autoplay=1&playsinline=1&rel=0&modestbranding=1&enablejsapi=1&origin=${window.location.origin || 'https://localhost'}`;
+    
+    /**
+     * UPDATES FOR FULLSCREEN:
+     * 1. Added 'fullscreen' to the 'allow' attribute string.
+     * 2. Retained 'allowFullscreen' boolean for standardized compatibility.
+     */
+    iframe.allow = "accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share; fullscreen";
+    iframe.allowFullscreen = true; 
+    iframe.className = "w-full h-full object-cover";
+
+    target.innerHTML = '';
+    target.appendChild(iframe);
+
+    if (shouldScroll) {
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+}
+
+        function renderEmptyState() {
+            const container = document.getElementById('feedList');
+            container.innerHTML = `
+                <div class="flex flex-col items-center justify-center py-16 px-4 text-center bg-[#222] rounded-xl border border-neutral-800">
+                    <i data-lucide="video-off" class="w-8 h-8 text-neutral-500 mb-2"></i>
+                    <h3 class="text-sm font-semibold text-white">No items found</h3>
+                    <p class="text-xs text-neutral-500 max-w-xs mt-1">Please confirm API token context allocations inside configuration blocks.</p>
+                </div>
+            `;
+            lucide.createIcons();
+        }
+
+        let infiniteObserver = null;
+        function setupInfiniteScroll() {
+            if (infiniteObserver) infiniteObserver.disconnect();
+
+            const trigger = document.getElementById('scrollTrigger');
+            infiniteObserver = new IntersectionObserver((entries) => {
+                if (entries[0].isIntersecting && state.isInitialLoaded && !state.isLoading) {
+                    const hasMore = Object.keys(state.paginationTokens).length > 0;
+                    if (hasMore) {
+                        fetchVideosFromChannels(true);
+                    } else {
+                        document.getElementById('triggerEnd').classList.remove('hidden');
+                    }
+                }
+            }, { rootMargin: '200px' });
+
+            infiniteObserver.observe(trigger);
+        }
+
+        function toggleScrollTriggerLoading(show) {
+            const loadEl = document.getElementById('triggerLoading');
+            const endEl = document.getElementById('triggerEnd');
+            if (show) {
+                loadEl.classList.remove('hidden');
+                endEl.classList.add('hidden');
+            } else {
+                loadEl.classList.add('hidden');
+                if (Object.keys(state.paginationTokens).length === 0 && state.isInitialLoaded) {
+                    endEl.classList.remove('hidden');
+                }
+            }
+        }
+
+        function initApp() {
+            reloadFeed();
+            setupInfiniteScroll();
+        }
+
+        function reloadFeed() {
+            state.isInitialLoaded = false;
+            state.videoFeed = [];
+            state.paginationTokens = {};
+            document.getElementById('feedList').innerHTML = '';
+            document.getElementById('triggerEnd').classList.add('hidden');
+            
+            renderPlaceholderSkeletons();
+            fetchVideosFromChannels(false);
+        }
+
+        function renderPlaceholderSkeletons() {
+            const container = document.getElementById('feedList');
+            container.innerHTML = Array(2).fill(0).map(() => `
+                <div class="w-full flex flex-col bg-transparent pb-3">
+                    <div class="w-full aspect-video bg-[#222] skeleton-shimmer"></div>
+                    <div class="h-4 bg-[#222] skeleton-shimmer mt-3 w-3/4 rounded"></div>
+                </div>
+            `).join('');
+        }
+
+        function showToast(message, type = 'info') {
+            const container = document.getElementById('toastContainer');
+            const toast = document.createElement('div');
+            let typeClasses = 'bg-[#222] border-neutral-700 text-neutral-300';
+            if (type === 'danger') typeClasses = 'bg-red-950/90 border-red-900 text-red-300';
+            
+            toast.className = `flex items-center gap-2 px-4 py-3 border rounded-xl shadow-xl transition-all duration-300 text-xs ${typeClasses}`;
+            toast.innerHTML = `<span class="font-medium">${message}</span>`;
+            container.appendChild(toast);
+
+            setTimeout(() => toast.remove(), 4000);
+        }
+
+        function displayStatusBanner(show, msg = '') {
+            const banner = document.getElementById('statusBanner');
+            const messageText = document.getElementById('statusMessage');
+            if (show) {
+                banner.classList.remove('hidden');
+                messageText.textContent = msg;
+            } else {
+                banner.classList.add('hidden');
+            }
+        }
+    </script>
+</body>
+</html>
